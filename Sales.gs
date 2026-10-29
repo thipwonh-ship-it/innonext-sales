@@ -1,5 +1,5 @@
 /**
- * Sales.gs — Innonext Sales (ค้นบาร์โค้ด Central + บันทึกยอดขายหน้าร้าน) v6 (29 ต.ค. 2026 — เปิดเฉพาะสาขาที่กำหนด + ตาราง CEO · ไม่ส่งสรุปอัตโนมัติ)
+ * Sales.gs — Innonext Sales (ค้นบาร์โค้ด Central + บันทึกยอดขายหน้าร้าน) v7 (29 ต.ค. 2026 — lock บันทึก · เตือนราคาผิด · ซ่อนสินค้าไม่มีที่ร้าน · เติมคอมมิชชั่น)
  * Repo: github.com/thipwonh-ship-it/innonext-sales (ไฟล์นี้วางใน Apps Script โปรเจกต์ "Innonext HR" เพื่อใช้ตัวตน LINE/พนักงานร่วมกัน)
  *
  * ใช้ร่วมกับ Innonext HR: ss() (ชีตพนักงาน), findByDevice, lineSession, TZ, linePushTo, lineReply, isAdminUid, execs/execByUid, linePushAdmin
@@ -58,6 +58,7 @@ function salesProducts() {
   const c = CacheService.getScriptCache(); const k = 'sales_prod'; const hit = c.get(k); if (hit) { try { return JSON.parse(hit); } catch (e) {} }
   const sh = salesBook().getSheetByName(SL_PROD); const last = sh ? sh.getLastRow() : 0; const list = [];
   if (last >= 2) sh.getRange(2, 1, last - 1, SP_NOTE).getValues().forEach(r => { if (!r[SP_MODEL - 1] && !r[SP_CBAR - 1]) return;
+    if (/ไม่มีที่ร้าน/.test(String(r[SP_NOTE - 1]))) return; // v7: สินค้าที่ลงทะเบียน Central ไว้แต่ไม่มีขายที่ร้าน → ไม่ให้ค้นเจอ (ลบคำนี้ในหมายเหตุเมื่อมีของ)
     list.push({ brand: String(r[SP_BRAND - 1]).trim(), model: String(r[SP_MODEL - 1]).trim(), color: String(r[SP_COLOR - 1]).trim(), size: String(r[SP_SIZE - 1]).trim(), csize: String(r[SP_CSIZE - 1]).trim(), cbar: String(r[SP_CBAR - 1]).trim(), cname: String(r[SP_CNAME - 1]).trim(), kbar: String(r[SP_KBAR - 1]).trim(), sku: String(r[SP_SKU - 1]).trim(), price: Number(r[SP_PRICE - 1]) || 0, note: String(r[SP_NOTE - 1]).trim() }); });
   try { const js = JSON.stringify(list); if (js.length < 95000) c.put(k, js, 600); } catch (e) {}
   return list;
@@ -90,16 +91,22 @@ function salesInfo(ident) {
   return { ok: true, name: e.name, loc: e.loc, today: mine.reverse(), qty: tQty, sum: tSum };
 }
 /** บันทึกขาย 1 รายการ: cbar = บาร์โค้ด Central ของสินค้าที่เลือก · price = ราคาขายจริง (ว่าง = ราคาเต็ม) */
-function logSale(ident, cbar, qty, price, note) {
+function logSale(ident, cbar, qty, price, note, force) {
   const e = salesWho(ident); if (!e) return { ok: false, msg: 'ไม่พบผู้ใช้' }; if (e.denied) return { ok: false, msg: e.msg };
   const p = salesProducts().find(x => x.cbar === String(cbar || '').trim()); if (!p) return { ok: false, msg: 'ไม่พบสินค้า' };
   qty = Math.max(1, Math.min(99, Math.round(Number(qty) || 1))); const full = p.price; let sell = price === '' || price == null ? full : Number(price);
   if (!(sell >= 0)) return { ok: false, msg: 'ราคาไม่ถูกต้อง' };
+  // v7: กันพิมพ์ราคาผิด — สูงกว่าราคาเต็ม / ต่ำกว่าครึ่ง / 0 บาท → ให้ยืนยันอีกครั้ง
+  if (!force && full > 0) { let w = ''; if (sell > full) w = 'ราคาขาย ' + sell.toLocaleString('en-US') + ' สูงกว่าราคาเต็ม ' + full.toLocaleString('en-US'); else if (sell === 0) w = 'ราคาขาย 0 บาท (แจกฟรี?)'; else if (sell < full * 0.5) w = 'ราคาขาย ' + sell.toLocaleString('en-US') + ' ต่ำกว่าครึ่งของราคาเต็ม ' + full.toLocaleString('en-US');
+    if (w) return { ok: false, confirm: true, msg: '⚠ ' + w + ' — ถูกต้องใช่ไหม?' }; }
+  const lock = LockService.getScriptLock(); try { lock.waitLock(10000); } catch (err) { return { ok: false, msg: 'ระบบไม่ว่าง กดใหม่อีกครั้ง' }; } // v7: กันสองคนบันทึกพร้อมกันทับแถว
+  try {
   const sh = salesBook().getSheetByName(SL_SALE); const now = new Date(); const row = sh.getLastRow() + 1; const disc = Math.max(0, (full - sell) * qty); const total = sell * qty;
   [SS_CBAR, SS_KBAR, SS_NOTE].forEach(c => sh.getRange(row, c).setNumberFormat('@'));
   sh.getRange(row, 1, 1, SS_VOID).setValues([[now, Utilities.formatDate(now, TZ, 'yyyy-MM'), e.loc, e.name, p.brand, p.model, p.color, p.csize || p.size, p.cbar, p.kbar, qty, full, sell, disc, total, String(note || '').slice(0, 200), '']]);
-  sh.getRange(row, SS_DATE).setNumberFormat('dd/MM/yyyy HH:mm');
+  sh.getRange(row, SS_DATE).setNumberFormat('dd/MM/yyyy HH:mm'); SpreadsheetApp.flush();
   return { ok: true, msg: 'บันทึกแล้ว ' + p.model + ' ' + p.color + ' ' + (p.csize || p.size) + ' ×' + qty + ' = ' + total.toLocaleString('en-US') + ' บาท' + (disc ? ' (ลด ' + disc.toLocaleString('en-US') + ')' : ''), row };
+  } finally { lock.releaseLock(); }
 }
 /** ยกเลิกรายการของตัวเองในวันนี้ (ผู้จัดการ/แอดมินยกเลิกของใครก็ได้) */
 function voidSale(ident, row, adminPin) {
@@ -134,6 +141,8 @@ function salesText(en) {
 }
 /** คำสั่งแชท: "sales" / "ยอดขาย" — CEO (อังกฤษ) / แอดมิน (ไทย) · เรียกจาก onExecCommand */
 function onSalesCommand(uid, txt, replyToken) {
+  const cm = /^(เติมคอม|คอมมิชชั่น)\s*(\d{4}-\d{2})$/.exec(String(txt || '').trim()); // v7: แอดมินพิมพ์ "เติมคอม 2026-10" → เติมยอดขายจากระบบลงแผ่นคอมมิชชั่น
+  if (cm) { if (!isAdminUid(uid)) return false; lineReply(replyToken, salesFillCommission(cm[2])); return true; }
   if (!/^(sales|ยอดขาย)$/i.test(String(txt || '').trim())) return false;
   const ex = (typeof execByUid === 'function') && !!execByUid(uid); const ad = isAdminUid(uid);
   const payer = String(PropertiesService.getScriptProperties().getProperty('PAYER_UID') || '').trim() === String(uid || '').trim(); // v4: แผนกบัญชี (หนึ่ง) ดูยอดขายได้ (ภาษาไทย)
@@ -144,6 +153,23 @@ function onSalesCommand(uid, txt, replyToken) {
 /** ทริกเกอร์ 20:xx — v6 (29 ต.ค.): อัปเดตตาราง CEO เงียบๆ ทุกคืน ไม่ส่งไลน์ (ประหยัดโควตา) · CEO/หนึ่ง/แอดมิน พิมพ์ sales / ยอดขาย เรียกดูเอง */
 function salesDailySummary() {
   try { salesCeoSync(); } catch (e) { Logger.log('salesCeoSync error: ' + e.message); }
+}
+
+/** v7: เติมยอดขายรวม VAT ของเดือน ym (yyyy-MM) ต่อคน จากแผ่น ยอดขาย ลงแผ่น คอมมิชชั่น (A เดือน · B ชื่อ · C ยอดรวม VAT · F หมายเหตุ) — คนที่มีแถวเดือนนั้นอยู่แล้วจะข้าม (แก้ในชีตเอง) */
+function salesFillCommission(ym) {
+  if (!/^\d{4}-\d{2}$/.test(ym)) return 'รูปแบบเดือนไม่ถูกต้อง ใช้ เติมคอม 2026-10';
+  const sh = salesBook().getSheetByName(SL_SALE); const last = sh ? sh.getLastRow() : 0; const by = {};
+  if (last >= 2) sh.getRange(2, 1, last - 1, SS_VOID).getValues().forEach(r => { if (!(r[0] instanceof Date) || String(r[SS_VOID - 1]) === '✓') return; if (Utilities.formatDate(r[0], TZ, 'yyyy-MM') !== ym) return;
+    const n = String(r[SS_NAME - 1]).trim(); by[n] = (by[n] || 0) + (Number(r[SS_TOTAL - 1]) || 0); });
+  const names = Object.keys(by); if (!names.length) return 'ไม่มียอดขายเดือน ' + ym + ' ในระบบ';
+  const cs = ss().getSheetByName(SH_COMM); if (!cs) return 'ไม่พบแผ่น คอมมิชชั่น';
+  const have = new Set(); let first = 0; const vals = cs.getRange(2, 1, 300, 3).getValues();
+  vals.forEach((r, i) => { const m = r[0] instanceof Date ? Utilities.formatDate(r[0], TZ, 'yyyy-MM') : String(r[0]).trim(); if (r[1] && m === ym) have.add(String(r[1]).trim()); if (!first && !r[0] && !r[1] && !r[2]) first = i + 2; });
+  if (!first) first = 302;
+  const added = [], skipped = []; const f = n => Math.round(n).toLocaleString('en-US');
+  names.forEach(n => { if (have.has(n)) { skipped.push(n.split(' ')[0] + ' (มีแถวอยู่แล้ว)'); return; }
+    cs.getRange(first, 1, 1, 3).setValues([[ym, n, Math.round(by[n] * 100) / 100]]); cs.getRange(first, 6).setValue('จากระบบขาย ' + Utilities.formatDate(new Date(), TZ, 'd/M HH:mm')); added.push(n.split(' ')[0] + ' ' + f(by[n])); first++; });
+  return '💰 คอมมิชชั่น ' + ym + (added.length ? '\nเติมแล้ว: ' + added.join(', ') + ' บาท (รวม VAT)' : '') + (skipped.length ? '\nข้าม: ' + skipped.join(', ') : '') + '\nตรวจที่แผ่น คอมมิชชั่น — ระบบคิด 2% ให้เองถ้าเกินเกณฑ์';
 }
 
 /* ---------- v3: ตารางยอดขายสำหรับ CEO (Google Sheet แยกไฟล์ ไม่มีชื่อพนักงาน · แชร์ด้วยอีเมล Google แบบดูอย่างเดียว) ---------- */
