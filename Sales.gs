@@ -1,5 +1,5 @@
 /**
- * Sales.gs — Innonext Sales (ค้นบาร์โค้ด Central + บันทึกยอดขายหน้าร้าน) v4 (29 ต.ค. 2026 — เปิดเฉพาะสาขาที่กำหนด + ตาราง CEO + แผนกบัญชีดูยอด)
+ * Sales.gs — Innonext Sales (ค้นบาร์โค้ด Central + บันทึกยอดขายหน้าร้าน) v5 (29 ต.ค. 2026 — เปิดเฉพาะสาขาที่กำหนด + ตาราง CEO + หนึ่งดูยอด/ได้สรุป 20:00)
  * Repo: github.com/thipwonh-ship-it/innonext-sales (ไฟล์นี้วางใน Apps Script โปรเจกต์ "Innonext HR" เพื่อใช้ตัวตน LINE/พนักงานร่วมกัน)
  *
  * ใช้ร่วมกับ Innonext HR: ss() (ชีตพนักงาน), findByDevice, lineSession, TZ, linePushTo, lineReply, isAdminUid, execs/execByUid, linePushAdmin
@@ -145,7 +145,10 @@ function onSalesCommand(uid, txt, replyToken) {
 function salesDailySummary() {
   const now = new Date(); const t0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()); const d = salesAgg(t0, new Date(t0.getTime() + 86400000)); if (!d.n) return;
   let url = ''; try { url = salesCeoSync().url; } catch (e) {}
-  const txt = salesText(true) + (url ? '\n\n📊 Full table (model · color · size · price): ' + url : ''); Object.keys((typeof execs === 'function') ? execs() : {}).forEach(uid => linePushTo(uid, txt));
+  const txt = salesText(true) + (url ? '\n\n📊 Full table (model · color · size · price): ' + url : ''); const ex = (typeof execs === 'function') ? execs() : {}; Object.keys(ex).forEach(uid => linePushTo(uid, txt));
+  // v5: หนึ่ง (CEO + บัญชี = PAYER_UID) ได้สรุปภาษาไทยด้วย ถ้ายังไม่ได้อยู่ในรายชื่อ CEO ภาษาอังกฤษ
+  const payer = String(PropertiesService.getScriptProperties().getProperty('PAYER_UID') || '').trim();
+  if (payer && !ex[payer]) linePushTo(payer, salesText(false) + (url ? '\n\n📊 ตารางเต็ม: ' + url : ''));
 }
 
 /* ---------- v3: ตารางยอดขายสำหรับ CEO (Google Sheet แยกไฟล์ ไม่มีชื่อพนักงาน · แชร์ด้วยอีเมล Google แบบดูอย่างเดียว) ---------- */
