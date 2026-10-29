@@ -1,19 +1,19 @@
 /**
- * Sales.gs — Innonext Sales (ค้นบาร์โค้ด Central + บันทึกยอดขายหน้าร้าน) v5 (29 ต.ค. 2026 — เปิดเฉพาะสาขาที่กำหนด + ตาราง CEO + หนึ่งดูยอด/ได้สรุป 20:00)
+ * Sales.gs — Innonext Sales (ค้นบาร์โค้ด Central + บันทึกยอดขายหน้าร้าน) v6 (29 ต.ค. 2026 — เปิดเฉพาะสาขาที่กำหนด + ตาราง CEO · ไม่ส่งสรุปอัตโนมัติ)
  * Repo: github.com/thipwonh-ship-it/innonext-sales (ไฟล์นี้วางใน Apps Script โปรเจกต์ "Innonext HR" เพื่อใช้ตัวตน LINE/พนักงานร่วมกัน)
  *
  * ใช้ร่วมกับ Innonext HR: ss() (ชีตพนักงาน), findByDevice, lineSession, TZ, linePushTo, lineReply, isAdminUid, execs/execByUid, linePushAdmin
  * ข้อมูลอยู่ใน Google Sheet แยก (Script Property SALES_SHEET_ID) — สร้างอัตโนมัติครั้งแรกที่เรียก setupSales()
  *   แผ่น "สินค้า":  แบรนด์ · รุ่น · สี · ไซส์(มม.) · ไซส์ Central · บาร์โค้ด Central · ชื่อ Central · บาร์โค้ดเกาหลี · SKU · ราคาเต็ม · หมายเหตุ
  *   แผ่น "ยอดขาย": วันที่ · เดือน · สาขา · พนักงาน · แบรนด์ · รุ่น · สี · ไซส์ · บาร์โค้ด Central · บาร์โค้ดเกาหลี · จำนวน · ราคาเต็ม · ราคาขาย · ส่วนลด · ยอดรวม · หมายเหตุ · ยกเลิก
- * สิทธิ์: พนักงานกลุ่ม "หน้าร้าน" (ปุ่ม 🛍 ขาย ในหน้าลงเวลา) · CEO/แอดมิน พิมพ์ "sales" / "ยอดขาย" ในแชท OA · สรุปยอดรายวันส่ง CEO 20:30
+ * สิทธิ์: พนักงานกลุ่ม "หน้าร้าน" (ปุ่ม 🛍 ขาย ในหน้าลงเวลา) · CEO/แอดมิน พิมพ์ "sales" / "ยอดขาย" ในแชท OA · ตาราง CEO อัปเดตเงียบๆ 20:xx
  * ⚠ ไม่มี secret ในไฟล์นี้
  */
 const SALES_PROP = 'SALES_SHEET_ID';
 const SL_PROD = 'สินค้า', SL_SALE = 'ยอดขาย';
 const SP_BRAND = 1, SP_MODEL = 2, SP_COLOR = 3, SP_SIZE = 4, SP_CSIZE = 5, SP_CBAR = 6, SP_CNAME = 7, SP_KBAR = 8, SP_SKU = 9, SP_PRICE = 10, SP_NOTE = 11;
 const SS_DATE = 1, SS_MONTH = 2, SS_LOC = 3, SS_NAME = 4, SS_BRAND = 5, SS_MODEL = 6, SS_COLOR = 7, SS_SIZE = 8, SS_CBAR = 9, SS_KBAR = 10, SS_QTY = 11, SS_FULL = 12, SS_PRICE = 13, SS_DISC = 14, SS_TOTAL = 15, SS_NOTE = 16, SS_VOID = 17;
-const SALES_SUMMARY_HOUR = 20; // ส่งสรุปยอดวันนี้ให้ CEO เวลา 20:xx
+const SALES_SUMMARY_HOUR = 20; // v6: อัปเดตตาราง CEO เงียบๆ เวลา 20:xx (ไม่ส่งไลน์)
 const SALES_LOCS_DEFAULT = 'Mega Bangna'; // v2: สาขาที่เปิดใช้ระบบขาย (ชื่อตรงกับคอลัมน์ ร้าน/สาขา ในแผ่น พนักงาน) — เพิ่มสาขาได้ที่ Script Property SALES_LOCS เช่น "Mega Bangna, Central World" ไม่ต้องแก้โค้ด
 /** v2: สาขานี้เปิดใช้ระบบขายหรือยัง */
 function salesAllowedLoc(loc) {
@@ -141,14 +141,9 @@ function onSalesCommand(uid, txt, replyToken) {
   let url = ''; try { url = salesCeoSync().url; } catch (e) {}
   lineReply(replyToken, salesText(ex && !ad) + (url ? (ex && !ad ? '\n\n📊 Full table (model · color · size · price): ' : '\n\n📊 ตารางเต็มสำหรับ CEO: ') + url : '')); return true;
 }
-/** ทริกเกอร์ 20:xx — ส่งยอดวันนี้ให้ CEO ทุกคน (เฉพาะวันที่มียอด) */
+/** ทริกเกอร์ 20:xx — v6 (29 ต.ค.): อัปเดตตาราง CEO เงียบๆ ทุกคืน ไม่ส่งไลน์ (ประหยัดโควตา) · CEO/หนึ่ง/แอดมิน พิมพ์ sales / ยอดขาย เรียกดูเอง */
 function salesDailySummary() {
-  const now = new Date(); const t0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()); const d = salesAgg(t0, new Date(t0.getTime() + 86400000)); if (!d.n) return;
-  let url = ''; try { url = salesCeoSync().url; } catch (e) {}
-  const txt = salesText(true) + (url ? '\n\n📊 Full table (model · color · size · price): ' + url : ''); const ex = (typeof execs === 'function') ? execs() : {}; Object.keys(ex).forEach(uid => linePushTo(uid, txt));
-  // v5: หนึ่ง (CEO + บัญชี = PAYER_UID) ได้สรุปภาษาไทยด้วย ถ้ายังไม่ได้อยู่ในรายชื่อ CEO ภาษาอังกฤษ
-  const payer = String(PropertiesService.getScriptProperties().getProperty('PAYER_UID') || '').trim();
-  if (payer && !ex[payer]) linePushTo(payer, salesText(false) + (url ? '\n\n📊 ตารางเต็ม: ' + url : ''));
+  try { salesCeoSync(); } catch (e) { Logger.log('salesCeoSync error: ' + e.message); }
 }
 
 /* ---------- v3: ตารางยอดขายสำหรับ CEO (Google Sheet แยกไฟล์ ไม่มีชื่อพนักงาน · แชร์ด้วยอีเมล Google แบบดูอย่างเดียว) ---------- */
