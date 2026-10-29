@@ -1,5 +1,5 @@
 /**
- * Sales.gs — Innonext Sales (ค้นบาร์โค้ด Central + บันทึกยอดขายหน้าร้าน) v1 (28 ต.ค. 2026)
+ * Sales.gs — Innonext Sales (ค้นบาร์โค้ด Central + บันทึกยอดขายหน้าร้าน) v2 (29 ต.ค. 2026 — เปิดเฉพาะสาขาที่กำหนด)
  * Repo: github.com/thipwonh-ship-it/innonext-sales (ไฟล์นี้วางใน Apps Script โปรเจกต์ "Innonext HR" เพื่อใช้ตัวตน LINE/พนักงานร่วมกัน)
  *
  * ใช้ร่วมกับ Innonext HR: ss() (ชีตพนักงาน), findByDevice, lineSession, TZ, linePushTo, lineReply, isAdminUid, execs/execByUid, linePushAdmin
@@ -14,6 +14,12 @@ const SL_PROD = 'สินค้า', SL_SALE = 'ยอดขาย';
 const SP_BRAND = 1, SP_MODEL = 2, SP_COLOR = 3, SP_SIZE = 4, SP_CSIZE = 5, SP_CBAR = 6, SP_CNAME = 7, SP_KBAR = 8, SP_SKU = 9, SP_PRICE = 10, SP_NOTE = 11;
 const SS_DATE = 1, SS_MONTH = 2, SS_LOC = 3, SS_NAME = 4, SS_BRAND = 5, SS_MODEL = 6, SS_COLOR = 7, SS_SIZE = 8, SS_CBAR = 9, SS_KBAR = 10, SS_QTY = 11, SS_FULL = 12, SS_PRICE = 13, SS_DISC = 14, SS_TOTAL = 15, SS_NOTE = 16, SS_VOID = 17;
 const SALES_SUMMARY_HOUR = 20; // ส่งสรุปยอดวันนี้ให้ CEO เวลา 20:xx
+const SALES_LOCS_DEFAULT = 'Mega Bangna'; // v2: สาขาที่เปิดใช้ระบบขาย (ชื่อตรงกับคอลัมน์ ร้าน/สาขา ในแผ่น พนักงาน) — เพิ่มสาขาได้ที่ Script Property SALES_LOCS เช่น "Mega Bangna, Central World" ไม่ต้องแก้โค้ด
+/** v2: สาขานี้เปิดใช้ระบบขายหรือยัง */
+function salesAllowedLoc(loc) {
+  const v = PropertiesService.getScriptProperties().getProperty('SALES_LOCS');
+  return String(v || SALES_LOCS_DEFAULT).split(',').map(x => x.trim()).filter(Boolean).indexOf(String(loc || '').trim()) >= 0;
+}
 
 function salesBook() {
   const P = PropertiesService.getScriptProperties(); let id = P.getProperty(SALES_PROP);
@@ -59,6 +65,7 @@ function salesProducts() {
 function salesWho(ident) {
   const e = findByDevice(ident); if (!e) return null;
   if (String(e.group || '').trim() !== 'หน้าร้าน' && !e.mgr) return { denied: true, msg: 'ใช้ได้เฉพาะพนักงานหน้าร้าน' };
+  if (!salesAllowedLoc(e.loc)) return { denied: true, msg: 'สาขานี้ยังไม่เปิดใช้ระบบขาย' };
   return e;
 }
 /** ค้นหา: บาร์โค้ดเกาหลี / บาร์โค้ด Central / SKU / รุ่น+สี+ไซส์ (พิมพ์คั่นด้วยช่องว่าง) — คืนไม่เกิน 30 รายการ */
