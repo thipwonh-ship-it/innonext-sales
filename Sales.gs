@@ -1,5 +1,5 @@
 /**
- * Sales.gs — Innonext Sales (ค้นบาร์โค้ด Central + บันทึกยอดขายหน้าร้าน) v3 (29 ต.ค. 2026 — เปิดเฉพาะสาขาที่กำหนด + ตาราง CEO)
+ * Sales.gs — Innonext Sales (ค้นบาร์โค้ด Central + บันทึกยอดขายหน้าร้าน) v4 (29 ต.ค. 2026 — เปิดเฉพาะสาขาที่กำหนด + ตาราง CEO + แผนกบัญชีดูยอด)
  * Repo: github.com/thipwonh-ship-it/innonext-sales (ไฟล์นี้วางใน Apps Script โปรเจกต์ "Innonext HR" เพื่อใช้ตัวตน LINE/พนักงานร่วมกัน)
  *
  * ใช้ร่วมกับ Innonext HR: ss() (ชีตพนักงาน), findByDevice, lineSession, TZ, linePushTo, lineReply, isAdminUid, execs/execByUid, linePushAdmin
@@ -135,7 +135,9 @@ function salesText(en) {
 /** คำสั่งแชท: "sales" / "ยอดขาย" — CEO (อังกฤษ) / แอดมิน (ไทย) · เรียกจาก onExecCommand */
 function onSalesCommand(uid, txt, replyToken) {
   if (!/^(sales|ยอดขาย)$/i.test(String(txt || '').trim())) return false;
-  const ex = (typeof execByUid === 'function') && !!execByUid(uid); const ad = isAdminUid(uid); if (!ex && !ad) return false;
+  const ex = (typeof execByUid === 'function') && !!execByUid(uid); const ad = isAdminUid(uid);
+  const payer = String(PropertiesService.getScriptProperties().getProperty('PAYER_UID') || '').trim() === String(uid || '').trim(); // v4: แผนกบัญชี (หนึ่ง) ดูยอดขายได้ (ภาษาไทย)
+  if (!ex && !ad && !payer) return false;
   let url = ''; try { url = salesCeoSync().url; } catch (e) {}
   lineReply(replyToken, salesText(ex && !ad) + (url ? (ex && !ad ? '\n\n📊 Full table (model · color · size · price): ' : '\n\n📊 ตารางเต็มสำหรับ CEO: ') + url : '')); return true;
 }
