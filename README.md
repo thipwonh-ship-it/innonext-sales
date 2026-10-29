@@ -31,6 +31,11 @@ CEO/แอดมินดูยอดรายวัน–รายเดือ�
 - เปิดสาขาเพิ่ม: Apps Script → Project Settings → Script Properties → `SALES_LOCS` = `Mega Bangna, Central World` (ชื่อตรงกับคอลัมน์ ร้าน/สาขา ในแผ่น พนักงาน) — ไม่ต้องแก้โค้ด ไม่ต้อง deploy
 - พนักงานสาขาที่ยังไม่เปิด จะไม่เห็นปุ่ม 🛍 ขาย
 
+## ตารางยอดขายสำหรับ CEO (v3 — 29 ต.ค. 2569)
+- Google Sheet แยก **"Innonext Sales — CEO Report"** (ID ใน Script Property `SALES_CEO_SHEET_ID`) แผ่น `Sales`: Date · Time · Branch · Brand · Model · Color · Size · Qty · Full/Sale price · Discount · Total · Note — **ไม่มีชื่อพนักงาน** · ไม่รวมรายการที่ยกเลิก · ใหม่สุดอยู่บน · มี filter
+- อัปเดตเมื่อ CEO/แอดมินพิมพ์ `sales`/`ยอดขาย` และตอนสรุป 20:xx (`salesCeoSync()`) · ลิงก์แนบท้ายข้อความ
+- แชร์แบบดูอย่างเดียวด้วยอีเมล Google: `salesCeoShare('a@gmail.com, b@gmail.com')` · CEO ดาวน์โหลดเป็น Excel ได้ (File → Download)
+
 ## เพิ่มสินค้า PISCESS / รุ่นใหม่
 เพิ่มแถวในแผ่น `สินค้า` (แบรนด์ = PISCESS) — ไม่ต้องแก้โค้ด · ค้นหาใช้ทุกคอลัมน์ยกเว้นหมายเหตุ
 

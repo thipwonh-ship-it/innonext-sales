@@ -1,5 +1,5 @@
 /**
- * Sales.gs — Innonext Sales (ค้นบาร์โค้ด Central + บันทึกยอดขายหน้าร้าน) v2 (29 ต.ค. 2026 — เปิดเฉพาะสาขาที่กำหนด)
+ * Sales.gs — Innonext Sales (ค้นบาร์โค้ด Central + บันทึกยอดขายหน้าร้าน) v3 (29 ต.ค. 2026 — เปิดเฉพาะสาขาที่กำหนด + ตาราง CEO)
  * Repo: github.com/thipwonh-ship-it/innonext-sales (ไฟล์นี้วางใน Apps Script โปรเจกต์ "Innonext HR" เพื่อใช้ตัวตน LINE/พนักงานร่วมกัน)
  *
  * ใช้ร่วมกับ Innonext HR: ss() (ชีตพนักงาน), findByDevice, lineSession, TZ, linePushTo, lineReply, isAdminUid, execs/execByUid, linePushAdmin
@@ -136,10 +136,45 @@ function salesText(en) {
 function onSalesCommand(uid, txt, replyToken) {
   if (!/^(sales|ยอดขาย)$/i.test(String(txt || '').trim())) return false;
   const ex = (typeof execByUid === 'function') && !!execByUid(uid); const ad = isAdminUid(uid); if (!ex && !ad) return false;
-  lineReply(replyToken, salesText(ex && !ad)); return true;
+  let url = ''; try { url = salesCeoSync().url; } catch (e) {}
+  lineReply(replyToken, salesText(ex && !ad) + (url ? (ex && !ad ? '\n\n📊 Full table (model · color · size · price): ' : '\n\n📊 ตารางเต็มสำหรับ CEO: ') + url : '')); return true;
 }
 /** ทริกเกอร์ 20:xx — ส่งยอดวันนี้ให้ CEO ทุกคน (เฉพาะวันที่มียอด) */
 function salesDailySummary() {
   const now = new Date(); const t0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()); const d = salesAgg(t0, new Date(t0.getTime() + 86400000)); if (!d.n) return;
-  const txt = salesText(true); Object.keys((typeof execs === 'function') ? execs() : {}).forEach(uid => linePushTo(uid, txt));
+  let url = ''; try { url = salesCeoSync().url; } catch (e) {}
+  const txt = salesText(true) + (url ? '\n\n📊 Full table (model · color · size · price): ' + url : ''); Object.keys((typeof execs === 'function') ? execs() : {}).forEach(uid => linePushTo(uid, txt));
+}
+
+/* ---------- v3: ตารางยอดขายสำหรับ CEO (Google Sheet แยกไฟล์ ไม่มีชื่อพนักงาน · แชร์ด้วยอีเมล Google แบบดูอย่างเดียว) ---------- */
+const SALES_CEO_PROP = 'SALES_CEO_SHEET_ID';
+const SALES_CEO_HEAD = ['Date', 'Time', 'Branch', 'Brand', 'Model', 'Color', 'Size', 'Qty', 'Full price (THB)', 'Sale price (THB)', 'Discount (THB)', 'Total (THB)', 'Note'];
+function salesCeoBook() {
+  const P = PropertiesService.getScriptProperties(); const id = P.getProperty(SALES_CEO_PROP);
+  if (id) { try { return SpreadsheetApp.openById(id); } catch (e) {} }
+  const b = SpreadsheetApp.create('Innonext Sales — CEO Report'); P.setProperty(SALES_CEO_PROP, b.getId());
+  const sh = b.getSheets()[0]; sh.setName('Sales');
+  sh.getRange(1, 1, 1, SALES_CEO_HEAD.length).setValues([SALES_CEO_HEAD]).setFontWeight('bold').setBackground('#1F4E78').setFontColor('#FFFFFF');
+  [[1, 95], [2, 55], [3, 120], [4, 85], [5, 130], [6, 140], [7, 55], [8, 45], [9, 105], [10, 105], [11, 100], [12, 95], [13, 200]].forEach(a => sh.setColumnWidth(a[0], a[1]));
+  sh.setFrozenRows(1); return b;
+}
+/** สร้างตารางใหม่จากแผ่น ยอดขาย (ไม่รวมรายการที่ยกเลิก · ใหม่สุดอยู่บน) — เรียกตอนพิมพ์ sales / ยอดขาย และทริกเกอร์ 20:xx */
+function salesCeoSync() {
+  const b = salesCeoBook(); const sh = b.getSheetByName('Sales') || b.getSheets()[0];
+  const src = salesBook().getSheetByName(SL_SALE); const last = src ? src.getLastRow() : 0; const out = [];
+  if (last >= 2) src.getRange(2, 1, last - 1, SS_VOID).getValues().forEach(r => { if (!(r[0] instanceof Date) || String(r[SS_VOID - 1]) === '✓') return;
+    const d = r[0]; out.push([new Date(d.getFullYear(), d.getMonth(), d.getDate()), Utilities.formatDate(d, TZ, 'HH:mm'), r[SS_LOC - 1], r[SS_BRAND - 1], r[SS_MODEL - 1], r[SS_COLOR - 1], String(r[SS_SIZE - 1]), Number(r[SS_QTY - 1]) || 0, Number(r[SS_FULL - 1]) || 0, Number(r[SS_PRICE - 1]) || 0, Number(r[SS_DISC - 1]) || 0, Number(r[SS_TOTAL - 1]) || 0, String(r[SS_NOTE - 1] || '').split(' | ยกเลิกโดย')[0], d.getTime()]); });
+  out.sort((a, c) => c[13] - a[13]); const rows = out.map(r => r.slice(0, 13)); const n = rows.length;
+  const f = sh.getFilter(); if (f) f.remove();
+  const max = sh.getMaxRows(); if (max > 1) sh.getRange(2, 1, max - 1, SALES_CEO_HEAD.length).clearContent();
+  if (n) { if (sh.getMaxRows() < n + 1) sh.insertRowsAfter(sh.getMaxRows(), n + 1 - sh.getMaxRows());
+    sh.getRange(2, 7, n, 1).setNumberFormat('@'); sh.getRange(2, 1, n, SALES_CEO_HEAD.length).setValues(rows);
+    sh.getRange(2, 1, n, 1).setNumberFormat('dd/MM/yyyy'); sh.getRange(2, 9, n, 4).setNumberFormat('#,##0'); }
+  sh.getRange(1, 1, Math.max(n, 1) + 1, SALES_CEO_HEAD.length).createFilter();
+  return { url: b.getUrl(), n };
+}
+/** แชร์ตาราง CEO แบบดูอย่างเดียว: salesCeoShare('a@gmail.com, b@gmail.com') — รันจาก IDE (ใส่อีเมลในฟังก์ชันชั่วคราว) */
+function salesCeoShare(emails) {
+  const list = String(emails || '').split(/[,\s]+/).map(x => x.trim()).filter(x => /@/.test(x)); if (!list.length) return 'ไม่มีอีเมล';
+  const b = salesCeoBook(); b.addViewers(list); return 'แชร์แล้ว: ' + list.join(', ') + ' → ' + b.getUrl();
 }
